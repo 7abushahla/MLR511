@@ -9,6 +9,7 @@ from attention import SelfAttention
 from layers import PositionalEmbedding
 
 
+@tf.keras.utils.register_keras_serializable()
 class EncoderLayer(layers.Layer):
     """
     Single encoder layer with self-attention and feed-forward network.
@@ -83,6 +84,7 @@ class EncoderLayer(layers.Layer):
         return config
 
 
+@tf.keras.utils.register_keras_serializable()
 class Encoder(layers.Layer):
     """
     SignBART Encoder with multiple encoder layers.

@@ -9,6 +9,7 @@ from attention import CrossAttention, CausalSelfAttention
 from layers import PositionalEmbedding
 
 
+@tf.keras.utils.register_keras_serializable()
 class DecoderLayer(layers.Layer):
     """
     Single decoder layer with causal self-attention, cross-attention, and feed-forward network.
@@ -103,6 +104,7 @@ class DecoderLayer(layers.Layer):
         return config
 
 
+@tf.keras.utils.register_keras_serializable()
 class Decoder(layers.Layer):
     """
     SignBART Decoder with multiple decoder layers.

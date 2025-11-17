@@ -11,6 +11,7 @@ from encoder import Encoder
 from decoder import Decoder
 
 
+@tf.keras.utils.register_keras_serializable()
 class ExtractLastValidToken(layers.Layer):
     """Extract last valid token based on attention mask."""
     
@@ -29,6 +30,10 @@ class ExtractLastValidToken(layers.Layer):
         last_output = tf.gather_nd(decoder_outputs, gather_indices)
         
         return last_output
+    
+    def get_config(self):
+        """Return config for serialization."""
+        return super().get_config()
 
 
 def build_signbart_functional(config):

@@ -7,6 +7,7 @@ from tensorflow import keras
 from tensorflow.keras import layers
 
 
+@tf.keras.utils.register_keras_serializable()
 class BaseAttention(layers.Layer):
     """
     Base class for all attention mechanisms.
@@ -65,6 +66,7 @@ class BaseAttention(layers.Layer):
         )
 
 
+@tf.keras.utils.register_keras_serializable()
 class SelfAttention(BaseAttention):
     """
     Self-attention mechanism for encoder.
@@ -118,6 +120,7 @@ class SelfAttention(BaseAttention):
         return attn_output
 
 
+@tf.keras.utils.register_keras_serializable()
 class CrossAttention(BaseAttention):
     """
     Cross-attention mechanism for decoder (attending to encoder outputs).
@@ -178,6 +181,7 @@ class CrossAttention(BaseAttention):
         return attn_output
 
 
+@tf.keras.utils.register_keras_serializable()
 class CausalSelfAttention(BaseAttention):
     """
     Causal self-attention mechanism for decoder (with future masking).

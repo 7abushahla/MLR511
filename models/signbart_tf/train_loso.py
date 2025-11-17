@@ -216,10 +216,11 @@ def save_run_metadata(experiment_name, config, args, start_time, end_time, succe
 
 
 def run_training(config_path, data_path, experiment_name, epochs, lr, seed, 
-                 pretrained_path="", no_validation=False):
+                 pretrained_path="", no_validation=False, use_functional=False):
     """Run training for one LOSO configuration."""
+    main_script = "main_functional.py" if use_functional else "main.py"
     cmd = [
-        sys.executable, "main.py",
+        sys.executable, main_script,
         "--experiment_name", experiment_name,
         "--config_path", config_path,
         "--task", "train",
@@ -287,6 +288,8 @@ def main():
                         help="Skip final evaluation on test set after training")
     parser.add_argument("--exp_prefix", type=str, default="",
                         help="Prefix for experiment names (e.g., 'pose_hands' or 'hands_only')")
+    parser.add_argument("--use_functional", action="store_true",
+                        help="Use functional API model instead of nested model (for QAT compatibility)")
     
     args = parser.parse_args()
     
@@ -324,6 +327,7 @@ def main():
     print(f"Epochs: {args.epochs}")
     print(f"Learning rate: {args.lr}")
     print(f"Seed: {args.seed}")
+    print(f"Model type: {'FUNCTIONAL API (QAT-ready)' if args.use_functional else 'NESTED (standard)'}")
     if args.exp_prefix:
         print(f"Experiment prefix: {args.exp_prefix}")
     if args.pretrained_path:
@@ -383,7 +387,8 @@ def main():
                 lr=args.lr,
                 seed=args.seed,
                 pretrained_path=args.pretrained_path,
-                no_validation=args.no_validation
+                no_validation=args.no_validation,
+                use_functional=args.use_functional
             )
             
             # Save metadata after training (includes model config and parameters)

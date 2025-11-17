@@ -8,6 +8,7 @@ from tensorflow.keras import layers
 import math
 
 
+@tf.keras.utils.register_keras_serializable()
 class PositionalEmbedding(layers.Layer):
     """
     Learned positional embeddings for SignBART.
@@ -70,6 +71,7 @@ class PositionalEmbedding(layers.Layer):
         )
 
 
+@tf.keras.utils.register_keras_serializable()
 class FeedForwardLayer(layers.Layer):
     """
     Feed-forward network with residual connection and layer normalization.
@@ -106,6 +108,7 @@ class FeedForwardLayer(layers.Layer):
         return config
 
 
+@tf.keras.utils.register_keras_serializable()
 class ClassificationHead(layers.Layer):
     """
     Classification head for final predictions.
@@ -146,6 +149,7 @@ class ClassificationHead(layers.Layer):
         )
 
 
+@tf.keras.utils.register_keras_serializable()
 class Projection(layers.Layer):
     """
     Projects x and y coordinates to embedding dimension.
