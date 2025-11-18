@@ -1,324 +1,448 @@
-# SignBART TensorFlow/Keras Implementation
-
-This directory contains a complete TensorFlow/Keras implementation of SignBART, converted from the original PyTorch version. The primary motivation for this conversion is to enable **clean quantization and TFLite conversion** for mobile deployment.
-
-## 📁 Directory Structure
-
-```
-signbart_tf/
-├── attention.py              # Attention mechanisms (Self, Cross, Causal)
-├── augmentations.py          # Data augmentations (copied from PyTorch, pure NumPy)
-├── configs/                  # Configuration files
-├── convert_to_tflite.py      # TFLite conversion with quantization support
-├── dataset.py                # TensorFlow dataset implementation
-├── decoder.py                # Decoder layers and architecture
-├── encoder.py                # Encoder layers and architecture
-├── layers.py                 # Core layers (Positional, Projection, etc.)
-├── main.py                   # Main training script (full-featured, like PyTorch)
-├── model.py                  # Main SignBART model
-├── train.py                  # Training script (simplified version)
-├── train_loso.py             # LOSO cross-validation training script
-├── utils.py                  # Utility functions
-└── README.md                 # This file
-```
-
-## 🚀 Key Features
-
-### ✅ Fully Functional TensorFlow Implementation
-- All PyTorch components converted to TensorFlow/Keras
-- Maintains same architecture and behavior as original
-- Uses native TF operations for best performance
-
-### ✅ Multiple Quantization Options
-- **No quantization**: Full float32 model
-- **Dynamic quantization**: Weights int8, activations float32
-- **Float16 quantization**: All operations in float16
-- **Int8 quantization**: Hybrid int8 (weights and activations)
-- **Full int8 quantization**: All int8 for edge TPU/embedded devices
-
-### ✅ Clean TFLite Conversion
-- Direct conversion from Keras model
-- No ONNX intermediary needed
-- Supports quantization-aware training path (if needed)
-
-### ✅ Efficient Data Pipeline
-- Uses `tf.data.Dataset` for optimal performance
-- Automatic batching with padding
-- Support for data augmentation
-
-## 🛠️ Installation
-
-```bash
-# Create conda environment (or use existing)
-conda create -n signbart_tf python=3.9
-conda activate signbart_tf
-
-# Install dependencies
-pip install tensorflow>=2.12.0
-pip install numpy pyyaml tqdm
-```
-
-## 📖 Usage
-
-### 1. Training
-
-#### Option A: Using main.py (Recommended - full-featured)
-
-```bash
-python main.py \
-    --experiment_name my_experiment \
-    --config_path configs/your_config.yaml \
-    --data_path /path/to/dataset \
-    --task train \
-    --epochs 200 \
-    --lr 2e-5
-```
-
-Features:
-- Learning rate scheduling (ReduceLROnPlateau)
-- Best checkpoint tracking (train and validation)
-- Training curve plotting
-- Detailed logging
-- Evaluation mode
-- Resume from checkpoint
-
-To resume training:
-```bash
-python main.py \
-    --experiment_name my_experiment \
-    --config_path configs/your_config.yaml \
-    --data_path /path/to/dataset \
-    --task train \
-    --resume_checkpoints checkpoints_my_experiment/checkpoint_50_latest.h5
-```
-
-To evaluate:
-```bash
-python main.py \
-    --experiment_name my_experiment \
-    --config_path configs/your_config.yaml \
-    --data_path /path/to/dataset \
-    --task eval
-```
-
-#### Option B: Using train.py (Simplified)
-
-```bash
-python train.py --config configs/your_config.yaml
-```
-
-To resume from checkpoint:
-```bash
-python train.py --config configs/your_config.yaml --resume
-```
-
-#### Option C: LOSO Cross-Validation (Recommended for Research)
-
-For Leave-One-Subject-Out cross-validation:
-
-```bash
-# Test with single user first
-python train_loso.py \
-    --config_path configs/your_config.yaml \
-    --base_data_path /path/to/dataset \
-    --holdout_only user01 \
-    --epochs 80 \
-    --lr 2e-4
-
-# Then run all LOSO experiments
-python train_loso.py \
-    --config_path configs/your_config.yaml \
-    --base_data_path /path/to/dataset \
-    --epochs 80 \
-    --lr 2e-4
-```
-
-See `LOSO_GUIDE.md` for detailed instructions.
-
-### 2. Converting to TFLite
-
-#### Basic Conversion (Dynamic Quantization)
-```bash
-python convert_to_tflite.py \
-    --config configs/your_config.yaml \
-    --checkpoint checkpoints/checkpoint_50_best_val.h5 \
-    --quantization dynamic \
-    --output models/signbart_dynamic.tflite
-```
-
-#### Float16 Quantization (Recommended for mobile)
-```bash
-python convert_to_tflite.py \
-    --config configs/your_config.yaml \
-    --checkpoint checkpoints/checkpoint_50_best_val.h5 \
-    --quantization float16 \
-    --output models/signbart_float16.tflite
-```
-
-#### Full Int8 Quantization (Maximum compression)
-```bash
-python convert_to_tflite.py \
-    --config configs/your_config.yaml \
-    --checkpoint checkpoints/checkpoint_50_best_val.h5 \
-    --quantization int8 \
-    --num-calibration-samples 200 \
-    --output models/signbart_int8.tflite
-```
-
-#### Test the Converted Model
-```bash
-python convert_to_tflite.py \
-    --config configs/your_config.yaml \
-    --checkpoint checkpoints/checkpoint_50_best_val.h5 \
-    --quantization dynamic \
-    --test
-```
-
-### 3. Configuration
-
-Example config file (`configs/example.yaml`):
-
-```yaml
-# Data
-data_root: "/path/to/dataset"
-keypoint_config: "full_100"  # Options: hands_only, pose_hands, full_75, full_100
-
-# Model architecture
-d_model: 256
-encoder_layers: 6
-encoder_attention_heads: 8
-encoder_ffn_dim: 1024
-decoder_layers: 6
-decoder_attention_heads: 8
-decoder_ffn_dim: 1024
-max_position_embeddings: 512
-num_labels: 64  # Number of sign classes
-classifier_dropout: 0.1
-
-# Regularization
-dropout: 0.1
-attention_dropout: 0.1
-activation_dropout: 0.1
-encoder_layerdrop: 0.0
-decoder_layerdrop: 0.0
-
-# Training
-batch_size: 16
-epochs: 100
-learning_rate: 0.0001
-optimizer: "adamw"
-weight_decay: 0.01
-augment: true
-
-# Paths
-checkpoint_dir: "checkpoints"
-log_dir: "logs"
-save_every: 5
-```
-
-## 🔄 Differences from PyTorch Version
-
-### Architecture
-- **Same**: Model architecture is identical
-- **Same**: Attention mechanisms work the same way
-- **Different**: Uses Keras `Layer` instead of `nn.Module`
-- **Different**: Uses `tf.function` for graph optimization
-
-### Data Loading
-- **Different**: Uses `tf.data.Dataset` instead of `torch.utils.data.Dataset`
-- **Same**: Augmentations are identical (pure NumPy)
-- **Different**: Automatic batching and padding in TF data pipeline
-
-### Training
-- **Different**: Uses `tf.GradientTape` for gradient computation
-- **Same**: Training loop logic is the same
-- **Different**: Checkpoint format (.h5 instead of .pth)
-
-### Performance
-- **Similar**: Should have comparable training speed
-- **Better**: TFLite inference is optimized for mobile
-- **Better**: Quantization is cleaner and more reliable
-
-## 📊 Model Size Comparison
-
-| Quantization | Model Size | Inference Speed | Accuracy Loss |
-|--------------|------------|-----------------|---------------|
-| None (float32) | ~100 MB | Baseline | 0% |
-| Dynamic (int8) | ~25 MB | 2-3x faster | <1% |
-| Float16 | ~50 MB | 1.5-2x faster | <0.5% |
-| Int8 | ~25 MB | 3-4x faster | 1-2% |
-| Int8 Full | ~25 MB | 4x+ faster | 2-3% |
-
-*Sizes and speeds are approximate and depend on model architecture*
-
-## 🧪 Testing
-
-Test individual components:
-
-```bash
-# Test layers
-python layers.py
-
-# Test attention
-python attention.py
-
-# Test encoder
-python encoder.py
-
-# Test decoder
-python decoder.py
-
-# Test full model
-python model.py
-
-# Test utilities
-python utils.py
-```
-
-## 🐛 Troubleshooting
-
-### Issue: "Out of memory" during conversion
-**Solution**: Reduce `num_calibration_samples` or use a smaller model
-
-### Issue: "Conversion failed" error
-**Solution**: Try with `experimental_new_converter=True` (already in code)
-
-### Issue: Large difference between TF and TFLite outputs
-**Solution**: This is normal for int8 quantization. Use float16 for better accuracy.
-
-### Issue: Model not loading weights
-**Solution**: Make sure model is built before loading weights (call model once)
-
-## 📝 Citation
-
-If you use this TensorFlow implementation, please cite the original SignBART paper and acknowledge this conversion.
-
-## 🤝 Contributing
-
-This is a direct conversion from PyTorch to TensorFlow. If you find bugs or want to add features:
-1. Test thoroughly
-2. Ensure consistency with PyTorch version
-3. Update documentation
-
-## 📄 License
-
-Same license as the original SignBART implementation.
-
-## 🔗 Related Files
-
-- Original PyTorch implementation: `../signbart/`
-- LSTM TensorFlow implementation: `../lstm/`
-- Mobile app integration: `../../../mobile_app/`
-
-## ✨ Advantages of This Implementation
-
-1. **Clean quantization**: No need for ONNX or ai_edge_torch
-2. **Better mobile support**: Native TFLite is optimized for mobile
-3. **Easier debugging**: TensorFlow's eager execution
-4. **Better ecosystem**: Integrates with TensorFlow Lite Model Maker
-5. **Production ready**: TFLite is battle-tested on mobile devices
+# SignBART TensorFlow - Arabic Sign Language Recognition
+
+TensorFlow/Keras implementation of SignBART for Arabic sign language gesture recognition with full quantization support (PTQ and QAT).
+
+## 🎯 Features
+
+- **Functional API Model**: QAT-ready architecture using Keras Functional API
+- **LOSO Cross-Validation**: Leave-One-Signer-Out evaluation across 3 users
+- **Full Dataset Training**: Train on all 12 users combined
+- **Quantization Support**: 
+  - Post-Training Quantization (PTQ)
+  - Quantization-Aware Training (QAT) with optimized hyperparameters
+  - Dynamic-range INT8 quantization (weights INT8, activations FP32)
+- **TFLite Export**: Optimized models for mobile/edge deployment
+- **Comprehensive Evaluation**: Accuracy metrics, confusion matrices, FLOPs calculation
 
 ---
 
-**Note**: This implementation is functionally equivalent to the PyTorch version but optimized for deployment. For research and experimentation, you may prefer the original PyTorch version.
+## 📁 Project Structure
+
+```
+signbart_tf/
+├── configs/
+│   └── arabic-asl-90kpts.yaml       # Model configuration (90 keypoints: body + hands + face)
+├── data/
+│   ├── arabic-asl-90kpts/           # Full dataset (all users)
+│   │   ├── all/                     # All samples for full training
+│   │   │   ├── G01/ ... G10/
+│   │   ├── label2id.json
+│   │   └── id2label.json
+│   ├── arabic-asl-90kpts_LOSO_user01/  # LOSO split for user01
+│   │   ├── train/                   # Training samples (users 08, 11)
+│   │   ├── test/                    # Test samples (user01)
+│   │   └── ...
+│   └── ...
+├── checkpoints_*/                   # Training checkpoints
+├── exports/                         # Quantized models
+│   ├── ptq_loso/                    # PTQ models (per user)
+│   ├── qat_loso/                    # QAT models (per user)
+│   ├── ptq_full/                    # PTQ model (full dataset)
+│   └── qat_full/                    # QAT model (full dataset)
+└── results/                         # Evaluation results
+    ├── confusion_matrices/          # Confusion matrix PNGs
+    ├── model_info.csv               # Parameters & FLOPs
+    ├── summary_table.csv            # Accuracy comparison
+    └── per_class_accuracy.csv       # Per-gesture accuracy
+```
+
+---
+
+## 🚀 Quick Start
+
+### 1. Environment Setup
+
+```bash
+conda create -n signbart_tf python=3.10
+conda activate signbart_tf
+pip install tensorflow tensorflow-model-optimization keras pyyaml numpy matplotlib seaborn
+```
+
+### 2. Training Workflows
+
+#### **LOSO Training (Recommended for Research)**
+
+Train on 3 LOSO splits (leave-one-signer-out):
+
+```bash
+# All 3 users (user01, user08, user11)
+python train_loso_functional.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --base_data_path data/arabic-asl-90kpts \
+    --epochs 80 \
+    --lr 2e-4 \
+    --no_validation
+```
+
+**Output**: 3 FP32 models in `checkpoints_arabic_asl_LOSO_user01/`, `user08/`, `user11/`
+
+**Quick test** (single user, 2 epochs):
+
+```bash
+python train_loso_functional.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --base_data_path data/arabic-asl-90kpts \
+    --holdout_only user01 \
+    --epochs 2 \
+    --lr 2e-4 \
+    --no_validation
+```
+
+---
+
+#### **Full Dataset Training**
+
+Train on all 12 users:
+
+```bash
+python train_full_dataset.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --base_data_path data/arabic-asl-90kpts \
+    --epochs 80 \
+    --lr 2e-4 \
+    --seed 42
+```
+
+**Output**: `checkpoints_arabic_asl_full/final_model.h5` and `final_model_fp32.tflite`
+
+---
+
+### 3. Quantization
+
+#### **Post-Training Quantization (PTQ)**
+
+Dynamic-range INT8 quantization (weights only):
+
+```bash
+# For LOSO models (all 3 users)
+python ptq_export_batch.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --base_data_path data/arabic-asl-90kpts
+
+# For single LOSO model (e.g., user01)
+python ptq_export.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --checkpoint checkpoints_arabic_asl_LOSO_user01/final_model.h5 \
+    --output_dir exports/ptq_arabic_asl_user01
+
+# For full dataset model
+python ptq_export.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --checkpoint checkpoints_arabic_asl_full/final_model.h5 \
+    --output_dir exports/ptq_full
+```
+
+---
+
+#### **Quantization-Aware Training (QAT)**
+
+Fine-tune with simulated quantization (better accuracy than PTQ):
+
+```bash
+# For LOSO models (all 3 users)
+python train_loso_functional_qat_batch.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --base_data_path data/arabic-asl-90kpts \
+    --batch_size 4 \
+    --qat_epochs 10 \
+    --lr 5e-5 \
+    --no_validation
+
+# For single LOSO model (e.g., user01)
+python train_loso_functional_qat.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --data_path data/arabic-asl-90kpts_LOSO_user01 \
+    --checkpoint checkpoints_arabic_asl_LOSO_user01/final_model.h5 \
+    --output_dir exports/qat_finetune_user01 \
+    --batch_size 4 \
+    --qat_epochs 10 \
+    --lr 5e-5
+
+# For full dataset model
+python train_loso_functional_qat.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --data_path data/arabic-asl-90kpts \
+    --checkpoint checkpoints_arabic_asl_full/final_model.h5 \
+    --output_dir exports/qat_full \
+    --batch_size 4 \
+    --qat_epochs 10 \
+    --lr 5e-5 \
+    --no_validation
+```
+
+**QAT Configuration**:
+- **Learning Rate**: 5e-5 (~4× lower than FP32 training)
+- **Batch Size**: 4 (larger than training for stability)
+- **Epochs**: 10-20 (short fine-tuning)
+- **Quantized Layers**: All Dense layers (FFN, attention projections, projection layers)
+- **Excluded**: Projection container (tuple output handling issue)
+- **Gradient Clipping**: clipnorm=1.0
+- **Early Stopping**: Patience 10 (restores best weights)
+
+**Quick QAT Demo** (builds toy model, applies QAT, exports):
+
+```bash
+python run_qat_export.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --output_dir exports/qat_demo \
+    --save_keras \
+    --seed 42
+```
+
+---
+
+### 4. Evaluation
+
+#### **Single Model Evaluation**
+
+Evaluate any TFLite model on any dataset split:
+
+```bash
+python evaluate_tflite_single.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --data_path data/arabic-asl-90kpts_LOSO_user01 \
+    --split test \
+    --tflite_path checkpoints_arabic_asl_full/final_model_fp32.tflite
+```
+
+---
+
+#### **Compare FP32 vs PTQ vs QAT**
+
+Side-by-side comparison of all three quantization approaches:
+
+```bash
+# Compare all three models
+python test_tflite_models.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --data_path data/arabic-asl-90kpts_LOSO_user01 \
+    --fp32_tflite checkpoints_arabic_asl_LOSO_user01/final_model_fp32.tflite \
+    --ptq_tflite exports/ptq_arabic_asl_user01/model_dynamic_int8.tflite \
+    --qat_tflite exports/qat_finetune_user01/qat_dynamic_int8.tflite
+
+# Compare FP32 vs PTQ only
+python test_tflite_models.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --data_path data/arabic-asl-90kpts_LOSO_user01 \
+    --fp32_tflite checkpoints_arabic_asl_LOSO_user01/final_model_fp32.tflite \
+    --ptq_tflite exports/ptq_arabic_asl_user01/model_dynamic_int8.tflite
+```
+
+---
+
+#### **Test Single Sample**
+
+Detailed analysis of a single prediction (with raw keypoint dump):
+
+```bash
+python test_single_sample.py \
+    --test_dir data/arabic-asl-90kpts_LOSO_user01/test \
+    --tflite_model checkpoints_arabic_asl_LOSO_user01/final_model_fp32.tflite \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --sample_file data/arabic-asl-90kpts_LOSO_user01/test/G10/user01_G10_R10.pkl \
+    --sample_label G10 \
+    --dump_raw_sample raw_keypoints.json
+```
+
+---
+
+#### **Comprehensive Results Collection**
+
+Generate full report with confusion matrices, FLOPs, and accuracy tables:
+
+```bash
+python collect_results.py \
+    --run_evaluation \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --base_data_path data/arabic-asl-90kpts
+```
+
+**Output**:
+- `results/report_YYYYMMDD_HHMMSS.txt` - Full text report
+- `results/confusion_matrices/*.png` - 9 confusion matrices (3 users × 3 models)
+- `results/model_info.csv` - Parameters, FLOPs
+- `results/summary_table.csv` - FP32 vs PTQ vs QAT comparison
+- `results/per_class_accuracy.csv` - Per-gesture accuracy
+
+---
+
+## 📊 Model Architecture
+
+```
+Input: Keypoints [T, 90, 2]
+  ↓
+Projection Layer (proj_x1, proj_y1) → [T, d_model=144]
+  ↓
+Positional Embeddings (learned)
+  ↓
+Encoder (2 layers, 4 heads, FFN 576)
+  ├─ Self-Attention (q_proj, k_proj, v_proj, out_proj)
+  ├─ LayerNorm + Residual
+  ├─ Feed-Forward (fc1, fc2)
+  └─ LayerNorm + Residual
+  ↓
+Decoder (2 layers, 4 heads, FFN 576)
+  ├─ Causal Self-Attention
+  ├─ Cross-Attention to Encoder
+  ├─ Feed-Forward (fc1, fc2)
+  └─ LayerNorm + Residual
+  ↓
+Extract Last Valid Token
+  ↓
+Classification Head → [10 classes]
+```
+
+**Parameters**: 773,578 total  
+**FLOPs**: Calculated per forward pass  
+
+### Model Size Comparison
+
+| Format | Size | Compression | Use Case |
+|--------|------|-------------|----------|
+| Keras .h5 (FP32) | ~9.2 MB | - | Training/Fine-tuning |
+| TFLite FP32 | ~3.0 MB | 3.1× | CPU inference (high accuracy) |
+| TFLite INT8 (PTQ/QAT) | ~1.03 MB | 12.3× | Mobile/Edge (optimized) |  
+
+---
+
+## 🔬 Quantization Details
+
+### What Gets Quantized
+
+✅ **Quantized** (Weights + Activations during training, Weights-only in TFLite):
+- FFN Dense layers: `fc1`, `fc2` (in encoder & decoder)
+- Attention projections: `q_proj`, `k_proj`, `v_proj`, `out_proj`
+- Input projections: `proj_x1`, `proj_y1`
+- Classification head: `out_proj`
+
+❌ **Not Quantized**:
+- Embeddings (positional)
+- Normalization layers (LayerNorm)
+- Activation functions (GELU, Softmax)
+- Dropout
+- Structural operations (residual connections, masking)
+
+🚫 **Excluded from Wrapping** (Critical):
+- `Projection` container (causes collapse if wrapped, but internal Dense layers ARE quantized)
+
+### Why Dynamic-Range Quantization?
+
+We use **weights-only INT8 quantization** (dynamic-range) instead of full INT8 because:
+- ✅ Significant model size reduction (~75% smaller)
+- ✅ Numerically stable (avoids INF/NaN in attention & normalization)
+- ✅ No calibration dataset needed
+- ❌ Full INT8 (with calibration) caused numerical instability → INF values
+
+---
+
+## 🎓 Key Findings (QAT Optimization)
+
+### Training Stability Issues Solved
+
+**Problem**: Model collapse after 3-4 QAT epochs (accuracy dropped from 95% → 11%)
+
+**Root Cause**: The `Projection` container layer (tuple output) was sensitive to `QuantizeWrapper`, even with `NoOpQuantizeConfig`.
+
+**Solution**: 
+1. Exclude `Projection` container from wrapping entirely
+2. Still quantize its internal Dense layers (`proj_x1`, `proj_y1`) via filters
+3. Use lower LR (5e-5 vs 2e-4 for FP32 training)
+4. Increase batch size (4 vs 1 for FP32 training)
+5. Add gradient clipping (clipnorm=1.0)
+6. Early stopping with best-weight restoration
+
+**Result**: Stable QAT training reaching 95% accuracy ✅
+
+### Attention Layers Are Safe to Quantize
+
+**Myth**: Attention projections are too sensitive for quantization  
+**Reality**: `q_proj`, `k_proj`, `v_proj`, `out_proj` can be safely quantized with proper hyperparameters
+
+---
+
+## 📈 Expected Results
+
+### LOSO Cross-Validation (3 users)
+
+| Model Type | Accuracy | Top-5 Acc | Size (MB) | Speedup |
+|------------|----------|-----------|-----------|---------|
+| FP32       | 94-96%   | 99-100%   | 3.00      | 1.0×    |
+| INT8-PTQ   | 93-95%   | 99-100%   | 0.75      | 2-3×    |
+| INT8-QAT   | 94-96%   | 99-100%   | 0.75      | 2-3×    |
+
+**QAT advantage**: +1-2% accuracy over PTQ while maintaining same size/speed.
+
+---
+
+## 🛠️ Key Scripts Reference
+
+### Training
+- `train_loso_functional.py` - LOSO training (3 users)
+- `train_full_dataset.py` - Full dataset training (12 users)
+- `main_functional.py` - Core training logic (called by above)
+
+### Quantization
+- `ptq_export.py` - PTQ for single model
+- `ptq_export_batch.py` - PTQ for all LOSO models
+- `train_loso_functional_qat.py` - QAT for single model
+- `train_loso_functional_qat_batch.py` - QAT for all LOSO models
+
+### Evaluation
+- `evaluate_tflite_single.py` - Evaluate any TFLite model on any dataset
+- `collect_results.py` - Comprehensive report generation
+- `test_tflite_models.py` - Compare FP32/PTQ/QAT side-by-side
+
+### Utilities
+- `dataset.py` - Dataset loading & preprocessing
+- `model_functional.py` - Functional API model definition
+- `layers.py` - Custom layers (Projection, ClassificationHead, etc.)
+- `encoder.py`, `decoder.py`, `attention.py` - Architecture components
+
+---
+
+## 🐛 Troubleshooting
+
+### Issue: "FileNotFoundError: train split not found"
+
+**Cause**: Using LOSO script on full dataset (or vice versa)
+
+**Solution**:
+- LOSO: Use `train_loso_functional_qat.py` with `data/arabic-asl-90kpts_LOSO_userXX`
+- Full: Use `train_loso_functional_qat.py` with `data/arabic-asl-90kpts` (auto-detects `all` split)
+
+---
+
+### Issue: "Top5Accuracy deserialization error"
+
+**Cause**: Mismatch between saved model config and metric definition
+
+**Solution**: Already fixed in latest code (extracts `k` from kwargs)
+
+---
+
+### Issue: QAT model collapse
+
+**Cause**: One of:
+1. Wrapping `Projection` container
+2. Learning rate too high
+3. Batch size too small
+
+**Solution**: Use provided QAT hyperparameters (lr=5e-5, batch=4)
+
+---
+
+## 📚 Citation and Reaching Out
+
+### Citation
+If you use this repository or its contents in your work, please cite this paper:
+```bibtex
+
+```
+
+### Contact
+If you have any questions, please feel free to reach out to me through email ([b00090279@alumni.aus.edu](mailto:b00090279@alumni.aus.edu)) or by connecting with me on [LinkedIn](https://www.linkedin.com/in/hamza-abushahla/).
+
+
+
+
 
