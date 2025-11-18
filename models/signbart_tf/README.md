@@ -65,15 +65,28 @@ pip install tensorflow tensorflow-model-optimization keras pyyaml numpy matplotl
 Train on 3 LOSO splits (leave-one-signer-out):
 
 ```bash
+# All 3 users (user01, user08, user11)
 python train_loso_functional.py \
     --config_path configs/arabic-asl-90kpts.yaml \
     --base_data_path data/arabic-asl-90kpts \
     --epochs 80 \
     --lr 2e-4 \
-    --seed 379
+    --no_validation
 ```
 
 **Output**: 3 FP32 models in `checkpoints_arabic_asl_LOSO_user01/`, `user08/`, `user11/`
+
+**Quick test** (single user, 2 epochs):
+
+```bash
+python train_loso_functional.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --base_data_path data/arabic-asl-90kpts \
+    --holdout_only user01 \
+    --epochs 2 \
+    --lr 2e-4 \
+    --no_validation
+```
 
 ---
 
@@ -101,10 +114,16 @@ python train_full_dataset.py \
 Dynamic-range INT8 quantization (weights only):
 
 ```bash
-# For LOSO models
+# For LOSO models (all 3 users)
 python ptq_export_batch.py \
     --config_path configs/arabic-asl-90kpts.yaml \
     --base_data_path data/arabic-asl-90kpts
+
+# For single LOSO model (e.g., user01)
+python ptq_export.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --checkpoint checkpoints_arabic_asl_LOSO_user01/final_model.h5 \
+    --output_dir exports/ptq_arabic_asl_user01
 
 # For full dataset model
 python ptq_export.py \
@@ -120,10 +139,21 @@ python ptq_export.py \
 Fine-tune with simulated quantization (better accuracy than PTQ):
 
 ```bash
-# For LOSO models
+# For LOSO models (all 3 users)
 python train_loso_functional_qat_batch.py \
     --config_path configs/arabic-asl-90kpts.yaml \
     --base_data_path data/arabic-asl-90kpts \
+    --batch_size 4 \
+    --qat_epochs 10 \
+    --lr 5e-5 \
+    --no_validation
+
+# For single LOSO model (e.g., user01)
+python train_loso_functional_qat.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --data_path data/arabic-asl-90kpts_LOSO_user01 \
+    --checkpoint checkpoints_arabic_asl_LOSO_user01/final_model.h5 \
+    --output_dir exports/qat_finetune_user01 \
     --batch_size 4 \
     --qat_epochs 10 \
     --lr 5e-5
@@ -149,11 +179,23 @@ python train_loso_functional_qat.py \
 - **Gradient Clipping**: clipnorm=1.0
 - **Early Stopping**: Patience 10 (restores best weights)
 
+**Quick QAT Demo** (builds toy model, applies QAT, exports):
+
+```bash
+python run_qat_export.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --output_dir exports/qat_demo \
+    --save_keras \
+    --seed 42
+```
+
 ---
 
 ### 4. Evaluation
 
 #### **Single Model Evaluation**
+
+Evaluate any TFLite model on any dataset split:
 
 ```bash
 python evaluate_tflite_single.py \
@@ -165,12 +207,54 @@ python evaluate_tflite_single.py \
 
 ---
 
+#### **Compare FP32 vs PTQ vs QAT**
+
+Side-by-side comparison of all three quantization approaches:
+
+```bash
+# Compare all three models
+python test_tflite_models.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --data_path data/arabic-asl-90kpts_LOSO_user01 \
+    --fp32_tflite checkpoints_arabic_asl_LOSO_user01/final_model_fp32.tflite \
+    --ptq_tflite exports/ptq_arabic_asl_user01/model_dynamic_int8.tflite \
+    --qat_tflite exports/qat_finetune_user01/qat_dynamic_int8.tflite
+
+# Compare FP32 vs PTQ only
+python test_tflite_models.py \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --data_path data/arabic-asl-90kpts_LOSO_user01 \
+    --fp32_tflite checkpoints_arabic_asl_LOSO_user01/final_model_fp32.tflite \
+    --ptq_tflite exports/ptq_arabic_asl_user01/model_dynamic_int8.tflite
+```
+
+---
+
+#### **Test Single Sample**
+
+Detailed analysis of a single prediction (with raw keypoint dump):
+
+```bash
+python test_single_sample.py \
+    --test_dir data/arabic-asl-90kpts_LOSO_user01/test \
+    --tflite_model checkpoints_arabic_asl_LOSO_user01/final_model_fp32.tflite \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --sample_file data/arabic-asl-90kpts_LOSO_user01/test/G10/user01_G10_R10.pkl \
+    --sample_label G10 \
+    --dump_raw_sample raw_keypoints.json
+```
+
+---
+
 #### **Comprehensive Results Collection**
 
 Generate full report with confusion matrices, FLOPs, and accuracy tables:
 
 ```bash
-python collect_results.py --run_evaluation
+python collect_results.py \
+    --run_evaluation \
+    --config_path configs/arabic-asl-90kpts.yaml \
+    --base_data_path data/arabic-asl-90kpts
 ```
 
 **Output**:
@@ -209,8 +293,15 @@ Classification Head → [10 classes]
 ```
 
 **Parameters**: 773,578 total  
-**Model Size**: 2.95 MB (FP32), ~0.75 MB (INT8)  
 **FLOPs**: Calculated per forward pass  
+
+### Model Size Comparison
+
+| Format | Size | Compression | Use Case |
+|--------|------|-------------|----------|
+| Keras .h5 (FP32) | ~9.2 MB | - | Training/Fine-tuning |
+| TFLite FP32 | ~3.0 MB | 3.1× | CPU inference (high accuracy) |
+| TFLite INT8 (PTQ/QAT) | ~1.03 MB | 12.3× | Mobile/Edge (optimized) |  
 
 ---
 
@@ -340,34 +431,18 @@ We use **weights-only INT8 quantization** (dynamic-range) instead of full INT8 b
 
 ---
 
-## 📚 Citation
+## 📚 Citation and Reaching Out
 
+### Citation
+If you use this repository or its contents in your work, please cite this paper:
 ```bibtex
-@article{signbart2024,
-  title={SignBART: Arabic Sign Language Recognition with Quantization},
-  author={Your Name},
-  year={2024}
-}
+
 ```
 
----
+### Contact
+If you have any questions, please feel free to reach out to me through email ([b00090279@alumni.aus.edu](mailto:b00090279@alumni.aus.edu)) or by connecting with me on [LinkedIn](https://www.linkedin.com/in/hamza-abushahla/).
 
-## 📝 License
 
-[Your License Here]
 
----
 
-## 🤝 Contributing
-
-Contributions welcome! Please ensure:
-- Code follows TensorFlow/Keras best practices
-- Quantization changes are tested on LOSO splits
-- Documentation is updated
-
----
-
-## 📧 Contact
-
-[Your Contact Information]
 
