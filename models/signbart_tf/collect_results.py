@@ -515,21 +515,6 @@ def evaluate_model_from_checkpoint(config_path, data_path, checkpoint_dir, user)
         traceback.print_exc()
         return None
     
-    # Calculate FLOPs
-    print(f"  Calculating FLOPs...")
-    num_keypoints = len(config['joint_idx'])
-    input_shape = (1, 64, num_keypoints, 2)  # (batch, seq_len, keypoints, coords)
-    flops = calculate_flops(model, input_shape)
-    if flops:
-        flops_millions = flops / 1e6
-        flops_billions = flops / 1e9
-        if flops_billions >= 1.0:
-            print(f"  ✓ Model FLOPs: {flops_billions:.2f} GFLOPs ({flops:,} FLOPs)")
-        else:
-            print(f"  ✓ Model FLOPs: {flops_millions:.2f} MFLOPs ({flops:,} FLOPs)")
-    else:
-        print(f"  ⚠️  Could not calculate FLOPs")
-    
     # Load test dataset
     print(f"  Loading test dataset...")
     try:
@@ -631,8 +616,7 @@ def evaluate_model_from_checkpoint(config_path, data_path, checkpoint_dir, user)
         'evaluated_from_checkpoint': True,
         'checkpoint_used': checkpoint_file,
         'file_size_mb': checkpoint_size_mb,
-        'model_path': checkpoint_path,
-        'flops': flops  # Add FLOPs to results
+        'model_path': checkpoint_path
     }
     
     print(f"\n  Results:")
@@ -641,9 +625,6 @@ def evaluate_model_from_checkpoint(config_path, data_path, checkpoint_dir, user)
     print(f"    Test Loss: {results_dict['test_loss']:.4f}")
     print(f"    Inference Time: {inference_time:.2f}s")
     print(f"    Time per sample: {results_dict['time_per_sample']*1000:.2f}ms")
-    if flops:
-        flops_b = flops / 1e9
-        print(f"    FLOPs: {flops_b:.2f} GFLOPs")
     print(f"{'='*80}\n")
     
     return results_dict
@@ -780,7 +761,7 @@ def calculate_per_class_statistics(all_results):
     return class_stats
 
 
-def save_csv_summary(all_results, ptq_results=None, qat_results=None, fp32_tflite_results=None, output_dir="results"):
+def save_csv_summary(all_results, ptq_results=None, qat_results=None, fp32_tflite_results=None, flops_value=None, output_dir="results"):
     """Save summary tables as CSV files."""
     os.makedirs(output_dir, exist_ok=True)
     
@@ -866,13 +847,6 @@ def save_csv_summary(all_results, ptq_results=None, qat_results=None, fp32_tflit
     with open(model_info_file, 'w') as f:
         f.write("Metric,Value,Unit\n")
         
-        # Get FLOPs from results
-        flops_value = None
-        for user_results in all_results.values():
-            if user_results.get('flops'):
-                flops_value = user_results['flops']
-                break
-        
         # Count parameters (build model once)
         try:
             from model_functional import build_signbart_functional_with_dict_inputs
@@ -891,10 +865,12 @@ def save_csv_summary(all_results, ptq_results=None, qat_results=None, fp32_tflit
         except Exception as e:
             print(f"  ⚠️  Warning: Could not count parameters for CSV: {e}")
         
+        # Use pre-calculated FLOPs
         if flops_value:
             f.write(f"FLOPs (Forward Pass),{flops_value:,},FLOPs\n")
             f.write(f"FLOPs (Forward Pass),{flops_value / 1e6:.2f},MFLOPs\n")
             f.write(f"FLOPs (Forward Pass),{flops_value / 1e9:.2f},GFLOPs\n")
+            f.write(f"Note,FLOPs are identical for FP32/INT8-QAT/INT8-PTQ (same architecture),\n")
         else:
             f.write(f"FLOPs (Forward Pass),Not calculated,N/A\n")
     
@@ -1104,9 +1080,31 @@ def generate_report(output_file=None, console=True, save_csv=True, run_evaluatio
         writer.writeln(f"Model size: {params['size_mb']:.2f} MB (FP32)")
         writer.writeln()
         
-        # FLOPs will be calculated and shown after model evaluation
+        # Calculate FLOPs once (same for all models since architecture is identical)
         writer.writeln("Computational Complexity:")
-        writer.writeln(f"  FLOPs: (will be calculated during model evaluation)")
+        flops_value = None
+        try:
+            # Build model once to calculate FLOPs
+            print("  Calculating FLOPs (once for all models)...")
+            model = build_signbart_functional_with_dict_inputs(config)
+            num_keypoints = len(config['joint_idx'])
+            input_shape = (1, 64, num_keypoints, 2)
+            flops_value = calculate_flops(model, input_shape)
+            
+            if flops_value:
+                flops_g = flops_value / 1e9
+                flops_m = flops_value / 1e6
+                if flops_g >= 1.0:
+                    writer.writeln(f"  FLOPs per forward pass: {flops_g:.2f} GFLOPs ({flops_value:,} FLOPs)")
+                else:
+                    writer.writeln(f"  FLOPs per forward pass: {flops_m:.2f} MFLOPs ({flops_value:,} FLOPs)")
+                writer.writeln(f"  (Computed for input shape: 1 x 64 frames x {num_keypoints} keypoints x 2 coords)")
+                writer.writeln(f"  Note: FLOPs are identical for FP32, INT8-QAT, and INT8-PTQ (same architecture)")
+            else:
+                writer.writeln(f"  FLOPs: Could not be calculated")
+        except Exception as e:
+            writer.writeln(f"  FLOPs: Could not be calculated ({e})")
+            print(f"  ⚠️  Warning: FLOPs calculation failed: {e}")
         writer.writeln()
         
         # 4. Results per Test Signer
@@ -1572,7 +1570,7 @@ def generate_report(output_file=None, console=True, save_csv=True, run_evaluatio
     
     # Save CSV files
     if save_csv and all_results:
-        save_csv_summary(all_results, ptq_results=ptq_results_global, qat_results=qat_results_global, fp32_tflite_results=fp32_tflite_results_global)
+        save_csv_summary(all_results, ptq_results=ptq_results_global, qat_results=qat_results_global, fp32_tflite_results=fp32_tflite_results_global, flops_value=flops_value)
         save_training_curves(all_results)
     
     return output_file

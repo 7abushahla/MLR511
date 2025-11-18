@@ -284,11 +284,38 @@ def main(args):
     train_loader, val_loader, train_datasets = prepare_data_loaders(
         args.data_path, joint_idx, batch_size, args.no_validation
     )
+
+    # Report number of training samples
+    try:
+        num_train_samples = len(train_datasets)
+        print(f"Training samples: {num_train_samples}")
+    except Exception:
+        pass
+
+    # Evaluation loader:
+    # - Prefer validation loader when available
+    # - Otherwise, try to create test loader
+    # - If test split is missing (e.g., full-dataset training), skip evaluation gracefully
     eval_loader = val_loader
     if eval_loader is None:
-        eval_dataset = SignDataset(args.data_path, "test", shuffle=False, joint_idxs=joint_idx, augment=False)
-        eval_loader_raw = eval_dataset.create_tf_dataset(batch_size, drop_remainder=False)
-        eval_loader = eval_loader_raw.map(format_batch_for_functional)
+        try:
+            eval_dataset = SignDataset(
+                args.data_path,
+                "test",
+                shuffle=False,
+                joint_idxs=joint_idx,
+                augment=False
+            )
+            eval_loader_raw = eval_dataset.create_tf_dataset(batch_size, drop_remainder=False)
+            # If dataset creation returns None or empty, skip evaluation
+            if eval_loader_raw is not None:
+                eval_loader = eval_loader_raw.map(format_batch_for_functional)
+            else:
+                eval_loader = None
+        except FileNotFoundError:
+            # Common in full-dataset training where only an "all" split exists
+            print("  Note: Test split not found – skipping final evaluation.")
+            eval_loader = None
     
     # Setup optimizer
     optimizer = keras.optimizers.AdamW(learning_rate=args.lr, weight_decay=config.get('weight_decay', 0.01))
@@ -574,22 +601,31 @@ def main(args):
         print(f"✓ TFLite FP32 model saved: {tflite_path}")
         print(f"  File size: {tflite_size_mb:.2f} MB")
         
-        # Evaluate both Keras and TFLite models on full test/validation set
+        # Evaluate both Keras and TFLite models on full test/validation set (if available)
         if eval_loader is not None:
-            print("\n2. Evaluating Keras model on test set...")
-            keras_start = time.time()
-            keras_results = model.evaluate(eval_loader, return_dict=True, verbose=1)
-            keras_time = time.time() - keras_start
-            
-            print(f"\n  Keras Model Results:")
-            print(f"    Loss: {keras_results['loss']:.4f}")
-            print(f"    Top-1 Accuracy: {keras_results['accuracy']:.4f} ({keras_results['accuracy']*100:.2f}%)")
-            print(f"    Top-5 Accuracy: {keras_results['top5_accuracy']:.4f} ({keras_results['top5_accuracy']*100:.2f}%)")
-            print(f"    Inference time: {keras_time:.2f} seconds")
-            
-            logger.info(f"Keras eval - Loss: {keras_results['loss']:.4f}, Acc: {keras_results['accuracy']:.4f}, Top5: {keras_results['top5_accuracy']:.4f}")
+            try:
+                print("\n2. Evaluating Keras model on test set...")
+                keras_start = time.time()
+                keras_results = model.evaluate(eval_loader, return_dict=True, verbose=1)
+                keras_time = time.time() - keras_start
+                
+                print(f"\n  Keras Model Results:")
+                print(f"    Loss: {keras_results['loss']:.4f}")
+                print(f"    Top-1 Accuracy: {keras_results['accuracy']:.4f} ({keras_results['accuracy']*100:.2f}%)")
+                print(f"    Top-5 Accuracy: {keras_results['top5_accuracy']:.4f} ({keras_results['top5_accuracy']*100:.2f}%)")
+                print(f"    Inference time: {keras_time:.2f} seconds")
+                
+                logger.info(
+                    f"Keras eval - Loss: {keras_results['loss']:.4f}, "
+                    f"Acc: {keras_results['accuracy']:.4f}, "
+                    f"Top5: {keras_results['top5_accuracy']:.4f}"
+                )
+            except ValueError as eval_err:
+                # Handle shape/empty-data issues gracefully, especially when no real test set exists
+                print(f"  Warning: Skipping Keras evaluation due to error: {eval_err}")
+                logger.warning(f"Keras evaluation skipped due to error: {eval_err}")
         else:
-            print("  Note: No validation data available for TFLite evaluation")
+            print("  Note: No validation/test data available for TFLite evaluation")
         
         print(f"\n{'='*80}")
         print("✓ TFLite FP32 conversion complete!")
